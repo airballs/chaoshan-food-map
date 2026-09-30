@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>潮汕美食微缩地图 · 精致版</title>
+<!-- 替换为国内访问更稳定的 BootCDN -->
+<link href="https://cdn.bootcdn.net/ajax/libs/leaflet/1.9.4/leaflet.css" rel="stylesheet">
+<script src="https://cdn.bootcdn.net/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+         background:linear-gradient(160deg,#faf6ee 0%,#f0e9db 100%); color:#2c2a26; min-height:100vh; }
+  .page { max-width:1200px; margin:0 auto; padding:18px 16px 40px; }
+  header { text-align:center; padding:26px 0 6px; }
+  header h1 { font-family:"Kaiti SC","STKaiti","KaiTi",serif; font-size:30px; letter-spacing:4px;
+              background:linear-gradient(135deg,#8b1e1e,#c0392b 55%,#d9822b);
+              -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
+  header .sub { font-size:13px; color:#8a7f6e; margin-top:6px; letter-spacing:1px; }
+  .stats { display:flex; justify-content:center; gap:8px; margin-top:12px; flex-wrap:wrap; }
+  .stats span { font-size:12px; padding:4px 14px; border-radius:14px; background:rgba(255,255,255,.7);
+                border:1px solid #e6ddcc; color:#6b6255; backdrop-filter:blur(6px); }
+  .stats b { color:#8b1e1e; }
+  .switch { display:flex; justify-content:center; gap:10px; margin:16px 0 14px; flex-wrap:wrap; }
+  .switch button { border:1px solid transparent; padding:9px 26px; border-radius:22px; font-size:14px;
+                   cursor:pointer; background:rgba(255,255,255,.75); color:#5a5347; transition:.25s;
+                   box-shadow:0 2px 6px rgba(90,70,40,.08); }
+  .switch button.active { background:linear-gradient(135deg,#8b1e1e,#a83232); color:#fff;
+                          box-shadow:0 4px 12px rgba(139,30,30,.35); transform:translateY(-1px); }
+  .switch button:not(.active):hover { border-color:#d9b98a; color:#8b1e1e; }
+  .switch button.route-btn.active { background:linear-gradient(135deg,#16a085,#1abc9c); }
+  .map-wrap { position:relative; border-radius:18px; overflow:hidden;
+              box-shadow:0 10px 34px rgba(60,40,20,.18), 0 2px 8px rgba(60,40,20,.1);
+              border:1px solid rgba(255,255,255,.7); }
+  #map { height:560px; z-index:1; background:#eef2ea; }
+  .base-switch { position:absolute; top:12px; right:12px; z-index:1200; display:flex; gap:6px; }
+  .base-switch button { border:none; padding:6px 13px; border-radius:16px; font-size:12px; cursor:pointer;
+                        background:rgba(255,255,255,.92); color:#5a5347; box-shadow:0 2px 8px rgba(0,0,0,.18);
+                        transition:.2s; backdrop-filter:blur(8px); }
+  .base-switch button.active { background:#2c2a26; color:#fff; }
+  .legend { position:absolute; top:12px; left:12px; z-index:1100; background:rgba(255,255,255,.88);
+            backdrop-filter:blur(12px); border-radius:14px; padding:10px 14px; font-size:11.5px;
+            color:#5a5347; box-shadow:0 4px 16px rgba(0,0,0,.15); max-width:230px; user-select:none; }
+  .legend h4 { font-size:12px; color:#8b1e1e; margin-bottom:6px; cursor:pointer; display:flex; justify-content:space-between; }
+  .legend .sec { display:flex; flex-wrap:wrap; gap:5px 12px; transition:.3s; overflow:hidden; }
+  .legend .sec.days { margin-top:8px; padding-top:8px; border-top:1px dashed #e0d6c4; }
+  .legend.collapsed .sec { max-height:0; padding:0; margin:0; border:none; }
+  .legend i { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:4px; vertical-align:0; }
+  .legend .ln { display:inline-block; width:16px; height:0; border-top:2px dashed; margin-right:4px; vertical-align:3px; }
+  .pin { position:relative; }
+  .pin .head { width:36px; height:36px; border-radius:50% 50% 50% 0; border:3px solid #fff;
+               box-shadow:0 5px 10px rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center;
+               color:#fff; font-size:13px; font-weight:700; transform:rotate(-45deg);
+               animation:drop .45s cubic-bezier(.2,.9,.3,1.3); cursor:pointer;
+               transition:width .2s,height .2s; }
+  .pin .head span { transform:rotate(45deg); }
+  .pin.hotel .head { font-size:15px; }
+  .pin.sel .head { width:44px; height:44px; font-size:16px;
+                   animation:drop .45s cubic-bezier(.2,.9,.3,1.3), pulse 1.6s .45s infinite; }
+  @keyframes drop { 0%{transform:translateY(-16px) rotate(-45deg) scale(.5);opacity:0}
+                    100%{transform:translateY(0) rotate(-45deg) scale(1);opacity:1} }
+  @keyframes pulse { 0%{box-shadow:0 5px 10px rgba(0,0,0,.35),0 0 0 0 rgba(139,30,30,.5)}
+                     70%{box-shadow:0 5px 10px rgba(0,0,0,.35),0 0 0 20px rgba(139,30,30,0)}
+                     100%{box-shadow:0 5px 10px rgba(0,0,0,.35),0 0 0 0 rgba(139,30,30,0)} }
+  .route { stroke-dasharray:8 10; animation:flow 1.4s linear infinite; }
+  @keyframes flow { to { stroke-dashoffset:-36; } }
+  .panel { position:relative; background:rgba(255,255,255,.88); backdrop-filter:blur(14px);
+           border:1px solid rgba(255,255,255,.8); border-radius:16px; margin-top:16px;
+           padding:20px 22px 18px; box-shadow:0 6px 22px rgba(60,40,20,.12); min-height:110px;
+           overflow:hidden; transition:.3s; }
+  .panel::before { content:''; position:absolute; left:0; top:0; bottom:0; width:5px;
+                   background:linear-gradient(180deg,#8b1e1e,#d9822b); }
+  .panel .empty { color:#a49a8a; font-size:14px; text-align:center; padding:26px 0; letter-spacing:1px; }
+  .panel h2 { font-size:19px; color:#6d1616; margin-bottom:8px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .tag { font-size:11px; padding:3px 10px; border-radius:11px; background:#f3e8d8; color:#8b5e34; font-weight:normal; }
+  .tag.hot { background:linear-gradient(135deg,#ffe3d8,#ffd6c4); color:#b03018; }
+  .tag.hotel { background:#ddeaff; color:#2058a8; }
+  .panel .row { font-size:14px; margin:5px 0; line-height:1.65; }
+  .panel .row b { color:#5a5347; }
+  .panel .desc { font-size:13.5px; color:#6b6255; margin-top:10px; line-height:1.8;
+                 background:linear-gradient(135deg,#faf5ec,#f6efe2); border-radius:10px; padding:12px 15px; }
+  .panel .btns { margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; }
+  .panel .btns a, .panel .btns button { font-size:13px; text-decoration:none; padding:7px 18px; border:none;
+      border-radius:18px; background:linear-gradient(135deg,#8b1e1e,#a83232); color:#fff; cursor:pointer;
+      box-shadow:0 3px 8px rgba(139,30,30,.3); transition:.2s; }
+  .panel .btns a:hover, .panel .btns button:hover { transform:translateY(-1px); box-shadow:0 5px 12px rgba(139,30,30,.4); }
+  .panel .btns button.gray { background:linear-gradient(135deg,#8a8072,#a49a8a); box-shadow:0 3px 8px rgba(90,80,60,.3); }
+  .list { margin-top:16px; display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:10px; }
+  .chip { background:rgba(255,255,255,.85); border:1px solid #eae2d2; border-radius:12px; padding:10px 14px;
+          font-size:13px; cursor:pointer; display:flex; align-items:center; gap:9px; transition:.18s; position:relative; overflow:hidden; }
+  .chip::before { content:''; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--c,#ccc); opacity:.85; }
+  .chip:hover { transform:translateY(-2px); box-shadow:0 6px 14px rgba(60,40,20,.14); border-color:#d9b98a; }
+  .chip .dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; margin-left:2px; }
+  .chip .day { font-size:10px; color:#fff; border-radius:8px; padding:1px 6px; flex-shrink:0; }
+  .chip .score { margin-left:auto; color:#c0392b; font-weight:700; font-size:12px; }
+  .chip.sel { border-color:#8b1e1e; background:#fff3ea; box-shadow:0 0 0 2px rgba(139,30,30,.25), 0 6px 14px rgba(60,40,20,.14); }
+  .leaflet-popup-content-wrapper { border-radius:12px; box-shadow:0 6px 20px rgba(0,0,0,.22); }
+  .pop-t { font-weight:700; color:#8b1e1e; margin-bottom:2px; font-size:14px; }
+  .pop-s { font-size:12px; color:#8a7f6e; }
+  .leaflet-control-attribution { background:rgba(255,255,255,.75)!important; font-size:10px!important; }
+  @media (max-width:640px){ #map{height:440px;} header h1{font-size:24px;} .legend{max-width:170px;font-size:10.5px;} }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <h1>🍜 潮汕美食微缩地图 🦢</h1>
+    <div class="sub">10.1 — 10.6 · 双城六日觅食记 · 点击标记查看详情</div>
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <div class="switch">
+    <button id="btn-all" class="active" onclick="setFilter('all')">🌐 全部</button>
+    <button id="btn-st" onclick="setFilter('st')">🌊 汕头</button>
+    <button id="btn-cz" onclick="setFilter('cz')">🏯 潮州</button>
+    <button id="btn-route" class="route-btn" onclick="toggleRoutes()">✨ 显示逐日路线</button>
+  </div>
+
+  <div class="map-wrap">
+    <div id="map"></div>
+    <div class="base-switch">
+      <button id="bm-amap" class="active" onclick="setBase('amap')">高德</button>
+      <button id="bm-sat" onclick="setBase('sat')">卫星</button>
+      <button id="bm-carto" onclick="setBase('carto')">素雅</button>
+      <button onclick="map.fitBounds(allBounds(),{padding:[40,40]})">⤢ 全览</button>
+    </div>
+    <div class="legend" id="legend">
+      <h4 onclick="document.getElementById('legend').classList.toggle('collapsed')">
+        <span>🎨 图例</span><span>▾</span></h4>
+      <div class="sec" id="legend-cat"></div>
+      <div class="sec days" id="legend-days"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel"><div class="empty">👆 点击地图上的标记，或从下方卡片选择</div></div>
+  <div class="list" id="list"></div>
+</div>
+
+<script>
+/* ============ 数据 ============ */
+const P = [
+ {id:'h1',city:'st',cat:'hotel',day:'d1',name:'汕头北山湾海景宾馆',score:'',lat:23.2553,lng:116.7618,
+  addr:'汕头市濠江区北山湾路（龙光碧海阳光北侧约150米）',time:'10.1入住14:00后 / 10.4离店12:00前',
+  dish:'家庭双床套房（弧形落地窗）',
+  desc:'前3晚大本营。离汕头市区车程约20-30分钟，白天进城吃、傍晚回海边散步。免费停车、24小时前台。'},
+ {id:'h2',city:'cz',cat:'hotel',day:'d4',name:'洲上·南社1号（潮州古城牌坊街店）',score:'',lat:23.6628,lng:116.6489,
+  addr:'潮州市湘桥区古城内·牌坊街片区',time:'10.4入住15:00后 / 10.6离店',
+  dish:'已在线付¥4092 / 2晚',
+  desc:'后2晚大本营，出门即牌坊街，老人小孩走累随时回房。10.2 18:00前可免费取消。'},
+ {id:'s1',city:'st',cat:'niurou',day:'d1',name:'杏花吴记牛肉火锅',score:'89',lat:23.3668,lng:116.6828,
+  addr:'汕头市金平区金砂西路新荷花园A栋1层',time:'09:30-21:30',price:'人均¥108',
+  dish:'脖仁、吊龙、匙仁、五花趾、手打牛肉丸',
+  desc:'盖得TOP8。现宰现切明档，饭点排队1小时+，建议17:00前到。小孩吃牛肉丸+粿条，老人涮8-10秒蘸沙茶。'},
+ {id:'s2',city:'st',cat:'yemi',day:'d2',name:'富苑饮食（吴记富苑）',score:'必吃',lat:23.3585,lng:116.7245,
+  addr:'汕头市龙湖区朝阳庄北区12栋',time:'17:30-次日02:00',price:'人均¥150-200',
+  dish:'白糜、卤水拼盘、隆江猪手、生腌蟹(大人)',
+  desc:'15米长台500种配菜的"打冷劳斯莱斯"，两篇公众号都重点推荐。全家点白粥+卤味+猪手，生腌大人浅尝。'},
+ {id:'s3',city:'st',cat:'yemi',day:'d3',name:'桂园白粥',score:'TOP9',lat:23.3705,lng:116.7085,
+  addr:'汕头市金平区长平路桂园28幢103',time:'11:00-次日04:00',price:'人均¥80-120',
+  dish:'鱼饭蘸豆酱、卤味、砂锅糜、杂咸',
+  desc:'夜糜专题两大巨头之一，体量大品类全，与富苑二选一，适合全家正餐式吃夜糜。'},
+ {id:'s4',city:'st',cat:'yemi',day:'d3',name:'长平老姿娘夜粥',score:'24h',lat:23.3605,lng:116.7025,
+  addr:'汕头市金平区长平路片区',time:'24小时',price:'人均¥55',
+  dish:'白粥、咸究麻叶、红肉米、卤味',
+  desc:'亲民派24小时粥店，丰俭由人，带老人小孩随到随吃。'},
+ {id:'s5',city:'st',cat:'lue',day:'d2',name:'春梅里卤鹅馆（中山路店）',score:'90',lat:23.3575,lng:116.6905,
+  addr:'汕头市金平区中山路71号',time:'08:00-20:30',price:'人均¥56',
+  dish:'卤鹅拼盘、鹅蛋、石橄榄炖汤',
+  desc:'盖得TOP7，四十余年老字号，狮头鹅三吊三浸。鹅肉软烂适合全家，配白粥是地道吃法。'},
+ {id:'s6',city:'st',cat:'guozhi',day:'d2',name:'镇平粿汁店',score:'90',lat:23.3565,lng:116.6820,
+  addr:'汕头市金平区镇平路01号',time:'全天',price:'人均¥15-19',
+  dish:'杂锦粿汁、卤蛋、烧肚',
+  desc:'盖得TOP3，30年老店。米汤打底淋老卤，碳水炸弹，老人小孩好消化。'},
+ {id:'s7',city:'st',cat:'guozhi',day:'d2',name:'老二炒粿',score:'90',lat:23.3550,lng:116.6790,
+  addr:'汕头市金平区福平路信逸雅园5栋105号',time:'10:30-14:00 / 17:00-20:30',price:'人均¥23',
+  dish:'牛肉炒粿、苦瓜汤、海鲜粿',
+  desc:'盖得TOP5，离镇平粿汁店步行几分钟，可连吃。炒粿焦香有镬气。'},
+ {id:'s8',city:'st',cat:'jingcai',day:'',name:'潮汕味道煮海餐厅',score:'93',lat:23.3708,lng:116.7290,
+  addr:'汕头市长平东路868号金麟大厦16楼',time:'11:30-14:00 / 17:30-21:30',price:'人均¥1000+',
+  dish:'生腌金蟹、烟熏鹅肝、炭烧响螺',
+  desc:'盖得TOP1，黑珍珠二钻九年，需提前订位。适合一顿"大人仪式感"。'},
+ {id:'s9',city:'st',cat:'jingcai',day:'',name:'吴·现代潮菜',score:'91',lat:23.3760,lng:116.7350,
+  addr:'汕头市龙湖区天澜国际大厦西塔4楼',time:'17:30-22:00',price:'人均¥1936',
+  dish:'36个月狮头鹅头、茅台碳烧响螺',
+  desc:'盖得TOP2，新潮菜私密会所，需预订。'},
+ {id:'s10',city:'st',cat:'niurou',day:'',name:'八合里牛肉火锅（总店）',score:'87',lat:23.3650,lng:116.6950,
+  addr:'汕头市金平区黄岗路坪东5座1层',time:'09:30-23:30',price:'人均¥98',
+  dish:'吊龙伴、五花趾、手锤牛肉丸',
+  desc:'盖得TOP10，杏花吴记排不上队时的稳妥备选。'},
+ {id:'s11',city:'st',cat:'niurou',day:'',name:'蔡社牛肉城（龙湖店）',score:'87',lat:23.4080,lng:116.7420,
+  addr:'汕头市龙湖区蔡社渔津北街（054县道旁）',time:'06:00-20:00',price:'人均¥75-78',
+  dish:'雪花肉、吊龙伴、自制辣椒酱',
+  desc:'盖得TOP11，屠牛场升级，肉"新鲜到会抖"。位置偏远，自驾顺路可去。'},
+ {id:'s12',city:'st',cat:'lue',day:'',name:'建业酒家（凤凰山路店）',score:'90',lat:23.3730,lng:116.7180,
+  addr:'汕头市龙湖区凤凰山路10号',time:'09:00-14:00 / 17:00-21:00',price:'人均¥329',
+  dish:'精细潮州菜、卤鹅、反沙芋头',
+  desc:'盖得TOP6，有包间环境好，适合家庭正式聚餐。'},
+ {id:'c1',city:'cz',cat:'guozhi',day:'d4',name:'奎元老二特色粿汁',score:'90',lat:23.6585,lng:116.6295,
+  addr:'潮州市湘桥区奎元中街B2幢首层20号',time:'07:00-23:00',price:'人均¥17',
+  dish:'粿汁配卤五花肉/大肠/卤蛋',
+  desc:'盖得潮州榜TOP1。卤汁浓郁，给老人小孩单点不加卤杂，距牌坊街打车10分钟。'},
+ {id:'c2',city:'cz',cat:'niurou',day:'d4',name:'官塘兄弟牛肉火锅（官塘总店）',score:'89',lat:23.6820,lng:116.6820,
+  addr:'潮州市湘桥区官塘镇巷头村水尾北片4号',time:'11:00-21:30',price:'人均¥90',
+  dish:'现切全部位、手打牛肉丸、生腌虾(大人)',
+  desc:'盖得潮州榜TOP2，1969年创办，本地人驱车前往，古城打车约20分钟。'},
+ {id:'c3',city:'cz',cat:'guozhi',day:'d6',name:'潮镇老尾牛杂（环城西路店）',score:'87',lat:23.6660,lng:116.6440,
+  addr:'潮州市湘桥区环城西路107号（西湖边）',time:'全天',price:'人均¥28',
+  dish:'牛杂粿条汤、牛筋丸',
+  desc:'盖得潮州榜TOP3。牛骨清汤咸鲜暖胃，小孩点纯牛丸+粿条，逛完西湖顺路吃。'},
+ {id:'c4',city:'cz',cat:'jingcai',day:'d5',name:'韩上楼',score:'87',lat:23.6570,lng:116.6570,
+  addr:'潮州市湘桥区凤洲西路凤凰洲公园旁',time:'07:30-14:00 / 17:00-21:00',price:'人均¥110+',
+  dish:'蚝烙、护国菜、红焖海参、反沙芋头',
+  desc:'盖得潮州榜TOP4，韩江江心岛老牌酒楼，有包间+免费停车，适合全家正式一顿。'},
+ {id:'c5',city:'cz',cat:'niurou',day:'d5',name:'非遗·老字号·阿彬牛肉火锅',score:'86',lat:23.6600,lng:116.6520,
+  addr:'潮州市湘桥区南较路右二横1号',time:'11:00-22:00',price:'人均¥96',
+  dish:'吊龙伴、手打牛丸(含虾仁)',
+  desc:'盖得潮州榜TOP5，1981年老字号，离牌坊街近，逛古城顺路。'},
+ {id:'c6',city:'cz',cat:'lue',day:'d5',name:'居石捞·潮汕卤水火锅（牌坊街店）',score:'86',lat:23.6630,lng:116.6490,
+  addr:'潮州市湘桥区太平路307号',time:'11:00-14:00 / 17:00-24:00',price:'人均¥138',
+  dish:'卤水锅底、鹅肝拼鹅肠、清酒花螺',
+  desc:'盖得潮州榜TOP6，特色卤水火锅，住古城步行可达。'},
+ {id:'c7',city:'cz',cat:'yusheng',day:'',name:'成发鱼生',score:'86',lat:23.6585,lng:116.6340,
+  addr:'潮州市湘桥区城新西路甸园B幢4-5号',time:'15:00-次日01:30',price:'人均¥115',
+  dish:'石坚鱼生、咸膏蟹、鱼头粥',
+  desc:'盖得潮州榜TOP7，鱼片薄如纸。仅大人可试，老人小孩点鱼头粥。'},
+ {id:'c8',city:'cz',cat:'yusheng',day:'',name:'官塘原味鱼生（潮州总店）',score:'85',lat:23.6645,lng:116.6410,
+  addr:'潮州市湘桥区绿榕北路8号门市',time:'11:00-14:00 / 16:30-次日02:00',price:'人均¥122',
+  dish:'石坚鱼生、明虾生',
+  desc:'盖得潮州榜TOP8，与成发鱼生二选一，仅大人尝试。'},
+ {id:'c9',city:'cz',cat:'jingcai',day:'',name:'郑厨私房菜',score:'84',lat:23.6600,lng:116.6400,
+  addr:'潮州市湘桥区古城西侧片区',time:'需预订',price:'人均¥366',
+  dish:'精致潮州菜、时令海鲜',
+  desc:'盖得潮州榜TOP9，安静吃顿好饭的备选。'}
+];
+
+const CAT = {niurou:{c:'#8b1e1e',n:'潮汕牛肉火锅',e:'🥩',z:'牛'},
+             yemi:{c:'#d9822b',n:'夜糜/白粥',e:'🥣',z:'粥'},
+             lue:{c:'#b8562e',n:'卤鹅',e:'🦢',z:'鹅'},
+             guozhi:{c:'#5d7a3a',n:'粿汁/粿条',e:'🍜',z:'粿'},
+             yusheng:{c:'#4a5f8a',n:'鱼生/生腌',e:'🍣',z:'鱼'},
+             jingcai:{c:'#7b4b94',n:'精致潮菜',e:'🍷',z:'菜'},
+             hotel:{c:'#2b7ac9',n:'酒店',e:'🏨',z:'⌂'}};
+const DAYS = [
+ {id:'d1',name:'D1·10.1 抵达·牛肉火锅',color:'#e74c3c',pts:['h1','s1']},
+ {id:'d2',name:'D2·10.2 老城扫街·夜糜',color:'#e67e22',pts:['s6','s7','s5','s2']},
+ {id:'d3',name:'D3·10.3 本地人路线',color:'#c9a227',pts:['s5','s3','s4']},
+ {id:'d4',name:'D4·10.4 转场潮州',color:'#16a085',pts:['h1','c1','h2','c2']},
+ {id:'d5',name:'D5·10.5 古城全家日',color:'#2980b9',pts:['h2','c6','c5','c4']},
+ {id:'d6',name:'D6·10.6 返程早餐',color:'#8e44ad',pts:['h2','c3']}];
+
+const IDX = Object.fromEntries(P.map(p=>[p.id,p]));
+let currentFilter='all', selectedId=null, showRoutes=false, needGcj=true;
+let markers=[], routeLines=[], baseLayer=null;
+
+/* ============ 坐标纠偏 WGS-84 → GCJ-02 ============ */
+function wgs2gcj(lat,lng){
+  const a=6378245.0, ee=0.00669342162296594323;
+  const tlat=(x,y)=>{let r=-100+2*x+3*y+.2*y*y+.1*x*y+.2*Math.sqrt(Math.abs(x));
+    r+=(20*Math.sin(6*x*Math.PI)+20*Math.sin(2*x*Math.PI))*2/3;
+    r+=(20*Math.sin(y*Math.PI)+40*Math.sin(y/3*Math.PI))*2/3;
+    r+=(160*Math.sin(y/12*Math.PI)+320*Math.sin(y*Math.PI/30))*2/3; return r;};
+  const tlng=(x,y)=>{let r=300+x+2*y+.1*x*x+.1*x*y+.1*Math.sqrt(Math.abs(x));
+    r+=(20*Math.sin(6*x*Math.PI)+20*Math.sin(2*x*Math.PI))*2/3;
+    r+=(20*Math.sin(x*Math.PI)+40*Math.sin(x/3*Math.PI))*2/3;
+    r+=(150*Math.sin(x/12*Math.PI)+300*Math.sin(x/30*Math.PI))*2/3; return r;};
+  let dLat=tlat(lat-105,lng-105), dLng=tlng(lat-105,lng-105);
+  const rad=lat/180*Math.PI; let magic=Math.sin(rad); magic=1-ee*magic*magic;
+  const sq=Math.sqrt(magic);
+  dLat=(dLat*180)/((a*(1-ee))/(magic*sq)*Math.PI);
+  dLng=(dLng*180)/(a/sq*Math.cos(rad)*Math.PI);
+  return [lat+dLat,lng+dLng];
+}
+const cur = p => { const g = needGcj? wgs2gcj(p.lat,p.lng) : [p.lat,p.lng]; return L.latLng(g[0],g[1]); };
+
+/* ============ 地图初始化 ============ */
+const map = L.map('map',{zoomControl:true}).setView([23.5,116.7],10);
+L.control.scale({imperial:false}).addTo(map);
+
+// 使用更稳定、支持 HTTPS 的高德底图瓦片
+const BASES = {
+  amap: ()=>L.tileLayer('https://wprd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scl=1&style=7&x={x}&y={y}&z={z}',
+                        {subdomains:['1','2','3','4'],attribution:'© 高德地图',maxZoom:18}),
+  sat:  ()=>L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                        {attribution:'© Esri',maxZoom:18}),
+  carto:()=>L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+                        {subdomains:'abcd',attribution:'© OSM © CARTO',maxZoom:19})};
+
+function setBase(m){
+  needGcj = (m==='amap');
+  if(baseLayer) map.removeLayer(baseLayer);
+  baseLayer = BASES[m]().addTo(map);
+  ['amap','sat','carto'].forEach(k=>document.getElementById('bm-'+k).classList.toggle('active',k===m));
+  refresh(false);
+}
+const allBounds = ()=>L.latLngBounds(visible().map(p=>cur(p)));
+
+/* ============ 标记 ============ */
+function icon(p){
+  const c=CAT[p.cat].c, s=selectedId===p.id, size=s?46:36;
+  const html=`<div class="pin ${p.cat==='hotel'?'hotel':''} ${s?'sel':''}">
+    <div class="head" style="width:${size}px;height:${size}px;background:${c};font-size:${s?16:13}px">
+    <span>${CAT[p.cat].z}</span></div></div>`;
+  return L.divIcon({html,className:'',iconSize:[size,size+6],iconAnchor:[size/2,size]});
+}
+const visible = ()=>P.filter(p=>currentFilter==='all'||p.city===currentFilter);
+
+function buildMarkers(){
+  markers.forEach(m=>map.removeLayer(m)); markers=[];
+  visible().forEach(p=>{
+    const m=L.marker(cur(p),{icon:icon(p),riseOnHover:true}).addTo(map);
+    m.bindPopup(`<div class="pop-t">${CAT[p.cat].e} ${p.name}</div>
+      <div class="pop-s">${CAT[p.cat].n}${p.score?' · 评分 '+p.score:''}</div>`);
+    m.on('click',()=>select(p.id,true));
+    p._m=m; markers.push(m);
+  });
+}
+
+/* ============ 逐日路线 ============ */
+function drawRoutes(){
+  routeLines.forEach(l=>map.removeLayer(l)); routeLines=[];
+  if(!showRoutes) return;
+  DAYS.forEach(d=>{
+    const pts=d.pts.map(id=>IDX[id]).filter(p=>currentFilter==='all'||p.city===currentFilter);
+    if(pts.length<2) return;
+    const line=L.polyline(pts.map(p=>cur(p)),{color:d.color,weight:3.5,opacity:.75,
+      className:'route'}).addTo(map);
+    routeLines.push(line);
+  });
+}
+
+/* ============ UI ============ */
+function refresh(fly){
+  buildMarkers(); drawRoutes(); renderList();
+  if(fly) map.flyToBounds(allBounds(),{padding:[45,45],duration:.8});
+}
+function setFilter(f){
+  currentFilter=f;
+  ['all','st','cz'].forEach(k=>document.getElementById('btn-'+k).classList.toggle('active',k===f));
+  refresh(true);
+  document.getElementById('panel').innerHTML='<div class="empty">👆 点击地图上的标记，或从下方卡片选择</div>';
+}
+function toggleRoutes(){
+  showRoutes=!showRoutes;
+  document.getElementById('btn-route').classList.toggle('active',showRoutes);
+  drawRoutes();
+}
+
+function renderList(){
+  const box=document.getElementById('list'); box.innerHTML='';
+  visible().forEach(p=>{
+    const d=document.createElement('div');
+    d.className='chip'+(selectedId===p.id?' sel':'');
+    d.style.setProperty('--c',CAT[p.cat].c);
+    d.onclick=()=>select(p.id,true);
+    const dayInfo=p.day?DAYS.find(x=>x.id===p.day):null;
+    d.innerHTML=`<span class="dot" style="background:${CAT[p.cat].c}"></span>
+      ${dayInfo?`<span class="day" style="background:${dayInfo.color}">${dayInfo.id.toUpperCase()}</span>`:''}
+      ${p.name}<span class="score">${p.score||''}</span>`;
+    box.appendChild(d);
+  });
+}
+
+function select(id,fly){
+  selectedId=id; const p=IDX[id];
+  buildMarkers(); renderList();
+  if(fly&&p._m){ map.flyTo(cur(p),Math.max(map.getZoom(),15),{duration:.6});
+    setTimeout(()=>p._m.openPopup(),650); }
+  const g=cur(p);
+  const nav=`https://uri.amap.com/marker?position=${g.lng.toFixed(6)},${g.lat.toFixed(6)}&name=${encodeURIComponent(p.name)}`;
+  document.getElementById('panel').innerHTML=`
+    <h2>${CAT[p.cat].e} ${p.name}
+      <span class="tag ${p.cat==='hotel'?'hotel':'hot'}">${CAT[p.cat].n}</span>
+      ${p.score?`<span class="tag">盖得评分 ${p.score}</span>`:''}</h2>
+    <div class="row"><b>📍 地址：</b>${p.addr}</div>
+    <div class="row"><b>🕐 时间：</b>${p.time}${p.price?` ｜ <b>💰</b> ${p.price}`:''}</div>
+    <div class="row"><b>🍽 必点：</b>${p.dish}</div>
+    <div class="desc">${p.desc}</div>
+    <div class="btns">
+      <a href="${nav}" target="_blank">🧭 高德导航</a>
+      <button class="gray" onclick="navigator.clipboard.writeText('${p.addr.replace(/'/g,'')}').then(()=>this.textContent='✓ 已复制')">📋 复制地址</button>
+    </div>`;
+}
+
+/* ============ 图例 & 统计 ============ */
+document.getElementById('legend-cat').innerHTML =
+  Object.values(CAT).map(c=>`<span><i style="background:${c.c}"></i>${c.n}</span>`).join('');
+document.getElementById('legend-days').innerHTML =
+  DAYS.map(d=>`<span><span class="ln" style="border-color:${d.color}"></span>${d.name}</span>`).join('');
+const nSt=P.filter(p=>p.city==='st').length, nCz=P.filter(p=>p.city==='cz').length;
+document.getElementById('stats').innerHTML=
+  `<span>🌊 汕头 <b>${nSt}</b> 处</span><span>🏯 潮州 <b>${nCz}</b> 处</span>
+   <span>🏨 酒店 <b>2</b> 家</span><span>📅 <b>6</b> 天动线</span>`;
+
+/* 启动 */
+if (typeof L === 'undefined') {
+  document.getElementById('map').innerHTML = '<div style="padding:20px;text-align:center;color:#c0392b;font-size:14px;line-height:1.6;">⚠️ 地图组件加载失败<br>请检查网络，或尝试换一个浏览器打开</div>';
+} else {
+  setBase('amap');
+  map.fitBounds(allBounds(),{padding:[45,45]});
+}
+</script>
+</body>
+</html>
