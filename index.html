@@ -391,13 +391,160 @@ document.getElementById('stats').innerHTML=
   `<span>🌊 汕头 <b>${nSt}</b> 处</span><span>🏯 潮州 <b>${nCz}</b> 处</span>
    <span>🏨 酒店 <b>2</b> 家</span><span>📅 <b>6</b> 天动线</span>`;
 
-/* 启动 */
+/* 启动与加载失败提示 */
 if (typeof L === 'undefined') {
-  document.getElementById('map').innerHTML = '<div style="padding:20px;text-align:center;color:#c0392b;font-size:14px;line-height:1.6;">⚠️ 地图组件加载失败<br>请检查网络，或尝试换一个浏览器打开</div>';
+  document.getElementById('map').innerHTML = '<div style="padding:20px;text-align:center;color:#c0392b;font-size:14px;line-height:1.6;">⚠️ 地图组件加载失败<br>请检查手机网络，或尝试切换浏览器</div>';
 } else {
   setBase('amap');
   map.fitBounds(allBounds(),{padding:[45,45]});
 }
+</script>
+
+<!-- ===== 添加地点插件（自定义收藏功能） ===== -->
+<script>
+(function(){
+  const KEY='csmap_custom_v1';
+  const load=()=>{try{return JSON.parse(localStorage.getItem(KEY))||[]}catch(e){return[]}};
+  const save=a=>localStorage.setItem(KEY,JSON.stringify(a));
+  const customs=load();
+  customs.forEach(c=>{if(!P.some(x=>x.id===c.id))P.push(c);});
+
+  const st=document.createElement('style');st.textContent=`
+    .fab{position:fixed;right:14px;bottom:80px;z-index:1400;width:52px;height:52px;border-radius:50%;
+      border:none;background:linear-gradient(135deg,#c0392b,#8b1e1e);color:#fff;font-size:26px;
+      box-shadow:0 6px 16px rgba(139,30,30,.45);cursor:pointer;display:flex;align-items:center;justify-content:center;}
+    .fab:active{transform:scale(.92)}
+    .pickbar{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:1400;
+      background:rgba(44,42,38,.92);color:#fff;padding:9px 18px;border-radius:20px;font-size:13px;
+      box-shadow:0 4px 14px rgba(0,0,0,.3);display:none;backdrop-filter:blur(8px);}
+    .pickbar button{margin-left:10px;background:none;border:none;color:#ffb199;font-size:13px;}
+    .mask{position:fixed;inset:0;z-index:1500;background:rgba(30,25,18,.45);display:none;
+      align-items:center;justify-content:center;padding:18px;backdrop-filter:blur(3px);}
+    .mask.show{display:flex}
+    .sheet{background:#fff;border-radius:16px;max-width:420px;width:100%;max-height:86vh;overflow:auto;padding:20px;}
+    .sheet h3{font-size:17px;color:#6d1616;margin-bottom:8px;}
+    .sheet label{display:block;font-size:12px;color:#8a7f6e;margin:10px 0 4px;}
+    .sheet input,.sheet select,.sheet textarea{width:100%;border:1px solid #e3dbc9;border-radius:9px;
+      padding:9px 11px;font-size:14px;background:#fbf8f2;box-sizing:border-box;}
+    .sheet textarea{min-height:64px;resize:vertical}
+    .sheet .ops{display:flex;gap:10px;margin-top:14px;}
+    .sheet .ops button{flex:1;padding:10px;border:none;border-radius:10px;font-size:14px;cursor:pointer;}
+    .btn-ok{background:linear-gradient(135deg,#8b1e1e,#a83232);color:#fff}
+    .btn-cancel{background:#eee7d9;color:#5a5347}
+    .mi{display:flex;align-items:center;gap:8px;padding:9px 4px;border-bottom:1px dashed #eee2cf;font-size:13px;}
+    .mi b{flex:1}
+    .mi button{border:none;background:#ffe8e0;color:#c0392b;border-radius:8px;padding:5px 10px;font-size:12px;}
+    .hint{font-size:11.5px;color:#a49a8a;line-height:1.6;margin-top:8px;}
+  `;document.head.appendChild(st);
+
+  document.body.insertAdjacentHTML('beforeend',`
+    <button class="fab" id="fabAdd" title="添加地点">＋</button>
+    <div class="pickbar" id="pickbar">👇 请在地图上点选位置<button id="pickCancel">取消</button></div>
+    <div class="mask" id="formMask"><div class="sheet" id="formSheet"></div></div>
+    <div class="mask" id="mgrMask"><div class="sheet" id="mgrSheet"></div></div>`);
+
+  let picking=false,lastTap=0;
+  const fab=document.getElementById('fabAdd'),pickbar=document.getElementById('pickbar');
+  const formMask=document.getElementById('formMask'),mgrMask=document.getElementById('mgrMask');
+
+  const guessCity=(lat,lng)=>{
+    const dST=Math.pow(lat-23.36,2)+Math.pow(lng-116.70,2);
+    const dCZ=Math.pow(lat-23.66,2)+Math.pow(lng-116.65,2);
+    return dCZ<dST?'cz':'st';
+  };
+  function gcj2wgs(lat,lng){ let w=[lat,lng];
+    for(let i=0;i<3;i++){ const g=wgs2gcj(w[0],w[1]); w=[lat-(g[0]-lat),lng-(g[1]-lng)]; }
+    return w; }
+
+  map.on('click',e=>{
+    if(!picking)return;
+    picking=false;pickbar.style.display='none';
+    let lat=e.latlng.lat,lng=e.latlng.lng;
+    if(needGcj){const w=gcj2wgs(lat,lng);lat=w[0];lng=w[1];}
+    openForm(lat,lng);
+  });
+
+  function startPick(){picking=true;pickbar.style.display='block';}
+  fab.onclick=startPick;
+  document.getElementById('pickCancel').onclick=()=>{picking=false;pickbar.style.display='none';};
+  fab.addEventListener('touchend',()=>{const n=Date.now();if(n-lastTap<350)openMgr();lastTap=n;});
+
+  function openForm(lat,lng){
+    const city=guessCity(lat,lng);
+    document.getElementById('formSheet').innerHTML=`
+      <h3>➕ 添加地点</h3>
+      <div class="hint">已选位置：${lat.toFixed(5)}, ${lng.toFixed(5)}</div>
+      <label>名称 *</label><input id="fName" placeholder="如：老妈宫粽球">
+      <label>类型</label><select id="fCat">${Object.entries(CAT).map(([k,v])=>`<option value="${k}">${v.e} ${v.n}</option>`).join('')}</select>
+      <label>城市</label><select id="fCity"><option value="st" ${city==='st'?'selected':''}>汕头</option><option value="cz" ${city==='cz'?'selected':''}>潮州</option></select>
+      <label>地址</label><input id="fAddr" placeholder="选填">
+      <label>营业时间</label><input id="fTime" placeholder="选填，如 10:00-22:00">
+      <label>人均</label><input id="fPrice" placeholder="选填，如 ¥60">
+      <label>必点 / 备注</label><textarea id="fDish" placeholder="选填"></textarea>
+      <div class="ops"><button class="btn-cancel" id="fCancel">取消</button><button class="btn-ok" id="fSave">保存</button></div>`;
+    formMask.classList.add('show');
+    document.getElementById('fCancel').onclick=()=>formMask.classList.remove('show');
+    document.getElementById('fSave').onclick=()=>{
+      const name=document.getElementById('fName').value.trim();
+      if(!name){document.getElementById('fName').focus();return;}
+      const item={id:'u'+Date.now(),custom:true,city:document.getElementById('fCity').value,
+        cat:document.getElementById('fCat').value,name,lat,lng,
+        addr:document.getElementById('fAddr').value.trim()||'（地图点选位置）',
+        time:document.getElementById('fTime').value.trim()||'—',
+        price:document.getElementById('fPrice').value.trim(),
+        dish:document.getElementById('fDish').value.trim()||'—',
+        desc:'自定义收藏的地点。'};
+      P.push(item);customs.push(item);save(customs);
+      formMask.classList.remove('show');
+      refresh(false);
+      select(item.id,false);
+      if(item._m){map.flyTo(cur(item),15,{duration:.6});setTimeout(()=>item._m&&item._m.openPopup(),650);}
+    };
+  }
+
+  function openMgr(){
+    picking=false;pickbar.style.display='none';
+    const list=customs.map(c=>`<div class="mi"><span style="width:10px;height:10px;border-radius:50%;background:${CAT[c.cat].c};flex-shrink:0"></span><b>${c.name}</b><button data-id="${c.id}">删除</button></div>`).join('')||'<div class="hint">暂无自定义地点</div>';
+    document.getElementById('mgrSheet').innerHTML=`
+      <h3>🗂 我添加的地点</h3>${list}
+      <label style="margin-top:14px">备份 / 迁移（复制发给家人，对方粘贴后点导入）</label>
+      <textarea id="mgrJson" placeholder="导出内容显示在这里">${customs.length?JSON.stringify(customs):''}</textarea>
+      <div class="ops"><button class="btn-cancel" id="mgrCopy">复制全部</button><button class="btn-ok" id="mgrImport">导入</button></div>
+      <div class="ops"><button class="btn-cancel" id="mgrClear">清空自定义地点</button></div>
+      <div class="hint">数据保存在当前浏览器里。换手机或换浏览器时，用"复制全部→导入"迁移。</div>
+      <div class="ops"><button class="btn-cancel" id="mgrClose">关闭</button></div>`;
+    mgrMask.classList.add('show');
+    document.querySelectorAll('#mgrSheet .mi button').forEach(b=>b.onclick=()=>{
+      const id=b.dataset.id,i=customs.findIndex(c=>c.id===id);
+      if(i>-1){customs.splice(i,1);save(customs);
+        const pi=P.findIndex(x=>x.id===id);if(pi>-1)P.splice(pi,1);
+        if(selectedId===id){selectedId=null;document.getElementById('panel').innerHTML='<div class="empty">👆 点击地图上的标记，或从下方卡片选择</div>';}
+        refresh(false);openMgr();}
+    });
+    document.getElementById('mgrCopy').onclick=e=>{
+      const t=document.getElementById('mgrJson');t.select();
+      if(navigator.clipboard)navigator.clipboard.writeText(t.value).then(()=>{e.target.textContent='✓ 已复制'});
+    };
+    document.getElementById('mgrImport').onclick=()=>{
+      try{
+        const arr=JSON.parse(document.getElementById('mgrJson').value);
+        if(!Array.isArray(arr))throw 0;
+        arr.forEach(a=>{if(a&&a.name&&a.lat&&a.lng&&!P.some(x=>x.id===a.id)){
+          a.custom=true;if(!a.id)a.id='u'+Date.now()+Math.random().toString(36).slice(2,5);
+          if(!CAT[a.cat])a.cat='guozhi';P.push(a);customs.push(a);}});
+        save(customs);refresh(false);openMgr();
+      }catch(e){alert('导入失败：内容格式不对');}
+    };
+    document.getElementById('mgrClear').onclick=()=>{
+      if(!confirm('确定清空所有自定义地点？'))return;
+      customs.length=0;save(customs);
+      for(let i=P.length-1;i>=0;i--)if(P[i].custom)P.splice(i,1);
+      selectedId=null;refresh(false);mgrMask.classList.remove('show');
+    };
+    document.getElementById('mgrClose').onclick=()=>mgrMask.classList.remove('show');
+  }
+  window.openMgrGlobal=openMgr;
+})();
 </script>
 </body>
 </html>
